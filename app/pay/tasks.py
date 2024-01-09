@@ -1,17 +1,14 @@
-import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+import stripe
+from datetime import timedelta
 
-import firebase_admin
-from app import stripe
-from dotenv import load_dotenv
-from firebase_admin import credentials, firestore
 from google.cloud.firestore_v1 import FieldFilter
 from devtools import debug
 from app.firebase_setup import db, current_time
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
 
 
 # Stripe stuff
@@ -21,10 +18,12 @@ def get_document_from_ref(trip_ref):
     :param trip_ref:
     :return:
     """
+    debug(trip_ref)
     collection_id, document_id = trip_ref.split("/")
-    debug(collection_id, document_id)
+    debug(collection_id)
+    debug(document_id)
     trip = db.collection(collection_id).document(document_id).get()
-    debug(trip.get("stripePaymentIntents"))
+    debug(trip)
     return trip
 
 
@@ -69,7 +68,6 @@ def handle_refund(trip_ref, amount):
     """
     logging.info("handle_refund called with trip_ref: %s", trip_ref)
 
-    print(trip_ref)
     trip = get_document_from_ref(trip_ref)
 
     if not trip.exists:
@@ -216,17 +214,22 @@ def process_cancel_refund(trip_ref):
         return {"status": 404, "message": "Trip document not found."}
 
     property_ref = trip.get("propertyRef")
-    property_doc = get_document_from_ref(property_ref)
+    debug(property_ref)
+    property = get_document_from_ref(f'properties/{property_ref}')
 
-    if not property_doc.exists:
+    if not property.exists:
         return {"status": 404, "message": "Property document not found."}
 
-    cancellation_policy = property_doc.get("cancellationPolicy")
+    cancellation_policy = property.cancellationPolicy
+    debug(cancellation_policy)
 
-    trip_begin_time = trip.get("tripBeginDateTime")
+    logging.info("Cancellation policy: %s", cancellation_policy)
+
+    trip_begin_time = trip.tripBeginDateTime
     time_difference = trip_begin_time - current_time
 
     payment_intent_ids = trip.get("stripePaymentIntents")
+    debug(payment_intent_ids)
     if not payment_intent_ids:
         return {"status": 404, "message": "No payment intents found on trip."}
 
@@ -308,6 +311,7 @@ def process_cancel_refund(trip_ref):
         "message": "Refund processed.",
         "total_refunded": total_refunded,
         "refund_details": refund_details,
+        "cancellation_policy": cancellation_policy,
     }
 
     return response
